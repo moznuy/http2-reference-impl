@@ -3,6 +3,8 @@ from __future__ import annotations
 import dataclasses
 import enum
 
+from http2 import hpack
+
 
 def default_settings() -> Settings:
     # TODO: fill default settings
@@ -11,6 +13,10 @@ def default_settings() -> Settings:
 
 def default_streams() -> dict[int, Stream]:
     return {0: Stream(identifier=0)}
+
+
+def default_decoder() -> hpack.HPack:
+    return hpack.HPack(max_table_size=default_settings().header_table_size)
 
 
 @dataclasses.dataclass(kw_only=True, slots=True)
@@ -32,6 +38,7 @@ class Client:
     # TODO: MUST be received / sent first
     settings_received: bool = False
     settings: Settings = dataclasses.field(default_factory=default_settings)
+    decoder: hpack.HPack = dataclasses.field(default_factory=default_decoder)
 
     streams: dict[int, Stream] = dataclasses.field(default_factory=default_streams)
 
@@ -55,7 +62,7 @@ class Stream:
 
 @dataclasses.dataclass(kw_only=True, slots=True)
 class Settings:
-    header_table_size: int = 1
+    header_table_size: int = 4_096
     enable_push: int = 1
     max_concurrent_streams: int | None = None
     initial_window_size: int = 65_535

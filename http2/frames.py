@@ -1,6 +1,3 @@
-# 6 bytes:
-# 16 bit identifier
-# 32 bit value
 import dataclasses
 import struct
 from collections.abc import Mapping
@@ -8,6 +5,10 @@ from typing import Protocol
 
 from http2 import models
 
+
+# 6 bytes:
+# 16 bit identifier
+# 32 bit value
 SETTINGS_FRAME_FORMAT = ">HI"
 SETTINGS_FRAME_FORMAT_SIZE = struct.calcsize(SETTINGS_FRAME_FORMAT)
 assert SETTINGS_FRAME_FORMAT_SIZE == 6
@@ -197,6 +198,16 @@ def parse_headers(client: models.Client, header: models.FrameHeader, frame: byte
     #    interleaved frames of any other type or from any other stream.
 
     print(header, frame)
+    http_headers = []
+    for success, http_header in client.decoder.decode(frame):
+        if not success:
+            # connection error: DECODE ERROR
+            print("DECODE ERROR", success, http_header)
+            client.need_close = True
+            return
+        print(http_header)
+        http_headers.append(http_header)
+    print(http_headers)
 
 
 def parse_unknown(client: models.Client, header: models.FrameHeader, frame: bytes):
