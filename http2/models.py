@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import enum
 
 
 def default_settings() -> Settings:
@@ -35,10 +36,21 @@ class Client:
     streams: dict[int, Stream] = dataclasses.field(default_factory=default_streams)
 
 
+class StreamState(enum.IntEnum):
+    idle = 0
+    reserved_local = 1
+    reserved_remote = 2
+    open = 3
+    half_closed_remote = 4
+    half_closed_local = 5
+    closed = 6
+
+
 @dataclasses.dataclass(kw_only=True, slots=True)
 class Stream:
     identifier: int
     flow_control: int = 65_535
+    state: StreamState = StreamState.idle
 
 
 @dataclasses.dataclass(kw_only=True, slots=True)

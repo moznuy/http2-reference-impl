@@ -13,6 +13,11 @@ SETTINGS_FRAME_FORMAT_SIZE = struct.calcsize(SETTINGS_FRAME_FORMAT)
 assert SETTINGS_FRAME_FORMAT_SIZE == 6
 
 
+#       Receiving any frame other than HEADERS or PRIORITY on a stream in
+#       this state MUST be treated as a connection error (Section 5.4.1)
+#       of type PROTOCOL_ERROR.
+
+
 def sizeof_fmt(num, suffix="B"):
     for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
         if abs(num) < 1024.0:
@@ -141,6 +146,55 @@ def parse_headers(client: models.Client, header: models.FrameHeader, frame: byte
     assert header is not None
     assert header.type == 0x1
     assert len(frame) == header.length
+
+    if header.stream_id == 0:
+        # TODO:
+        #   The recipient MUST
+        #   respond with a connection error (Section 5.4.1) of type
+        #   PROTOCOL_ERROR.
+        print("Header frame can not be sent for stream id 0")
+        client.need_close = True
+        return
+
+    stream = client.streams.setdefault(
+        header.stream_id, models.Stream(identifier=header.stream_id)
+    )
+
+    if stream.state in [models.StreamState.idle]:
+        stream.state = models.StreamState.open
+    elif stream.state in [models.StreamState.reserved_remote]:
+        stream.state = models.StreamState.half_closed_local
+    else:
+        print("Received headers frame on wrong stream state", stream.state)
+        client.need_close = True
+        return
+
+    # TODO:   A HEADERS frame carries the END_STREAM flag that signals the end
+    #       of a stream.  However, a HEADERS frame with the END_STREAM flag
+    #       set can be followed by CONTINUATION frames on the same stream.
+    #       Logically, the CONTINUATION frames are part of the HEADERS frame.
+
+    # TODO: so stream what end until either end_headers specified here or in CONT
+    end_stream = (header.flags & 0x1) != 0
+    # TODO: not followed by CONT frames
+    end_headers = (header.flags & 0x4) != 0
+    padded = (header.flags & 0x8) != 0  # Padded field present
+    priority = header.flags & 0x20  # Ex flag, Stream Depend, Weight fields are present
+
+    # TODO:    The HEADERS frame can include padding.  Padding fields and flags are
+    #    identical to those defined for DATA frames (Section 6.1).
+
+    # TODO: handle priority
+    assert not priority
+    # TODO: handle padded
+    assert not padded
+
+    # TODO: handle CONT
+    assert end_headers
+
+    # TODO: Header blocks
+    #    MUST be transmitted as a contiguous sequence of frames, with no
+    #    interleaved frames of any other type or from any other stream.
 
     print(header, frame)
 
