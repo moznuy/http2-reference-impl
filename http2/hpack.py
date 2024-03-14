@@ -3,6 +3,8 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Iterator
 
+from http2 import huffman
+
 
 @dataclasses.dataclass(slots=True, kw_only=True, frozen=True)
 class Header:
@@ -132,7 +134,7 @@ class HPack:
         #   a ttempt to add an entry that is larger than the maximum size; an
         #   attempt to add an entry larger than the maximum size causes the table
         #   to be emptied of all existing entries and results in an empty table.
-        pass
+        self.dynamic_indexes.append(header)
 
     def get_from_tables(
         self, index: int, value_must: bool
@@ -148,7 +150,7 @@ class HPack:
         if index >= len(self.dynamic_indexes):
             return False, -6
 
-        header = self.dynamic_indexes[index]
+        header = self.dynamic_indexes[-index - 1]
         if value_must and header.value is None:
             return False, -8
         return True, header
@@ -277,17 +279,18 @@ def decode_str(data: bytes) -> tuple[bool, str | int, bytes]:
         return False, -3, data
 
     first_byte, data = data[0], data[1:]
-    huffman = (first_byte & 0b1000_0000) != 0  # TODO: is it MSB or LSB? probably MSB
+    _huffman = (first_byte & 0b1000_0000) != 0  # TODO: is it MSB or LSB? probably MSB
     success, length, data = decode_int(7, first_byte & 0x7F, data)
     if not success:
         return False, length, data
 
-    # TODO: huffman with padding AFTER
-    assert not huffman
-
     if len(data) < length:
         return False, -4, data
     raw, data = data[:length], data[length:]
-    s = raw.decode()
-    return True, s, data
 
+    if not _huffman:
+        s = raw.decode()
+        return True, s, data
+
+    success, s = huffman.decode_huffman(raw)
+    return success, s, data

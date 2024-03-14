@@ -5,7 +5,6 @@ from typing import Protocol
 
 from http2 import models
 
-
 # 6 bytes:
 # 16 bit identifier
 # 32 bit value
@@ -197,7 +196,6 @@ def parse_headers(client: models.Client, header: models.FrameHeader, frame: byte
     #    MUST be transmitted as a contiguous sequence of frames, with no
     #    interleaved frames of any other type or from any other stream.
 
-    print(header, frame)
     http_headers = []
     for success, http_header in client.decoder.decode(frame):
         if not success:
@@ -207,7 +205,6 @@ def parse_headers(client: models.Client, header: models.FrameHeader, frame: byte
             return
         print(http_header)
         http_headers.append(http_header)
-    print(http_headers)
 
 
 def parse_unknown(client: models.Client, header: models.FrameHeader, frame: bytes):
