@@ -399,8 +399,13 @@ def decode_huffman(data: bytes) -> tuple[bool, str | int]:
     offset = 0
     raw_bytes = []
     while True:
+        previous_offset = offset
         byte, offset = _traverse_tree(TREE, bin_string, offset)
         if byte == -1:
+            if len(bin_string) - previous_offset > 7:
+                return False, -12
+            if "0" in bin_string[previous_offset:]:
+                return False, -13
             break
         if byte < 0:
             return False, byte

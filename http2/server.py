@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import signal
 import socket
 import struct
 
@@ -125,8 +126,21 @@ def handle_client(client: models.Client) -> None:
 def main():
     server_sock = socket.create_server(("127.0.0.1", 8000), reuse_port=True)
     print("Listening on port 8000")
+
+    def sig_handler(sig, frame):
+        print("Exit signal")
+        nonlocal server_sock
+        server_sock.close()
+
+    signal.signal(signal.SIGINT, sig_handler)
+    signal.signal(signal.SIGTERM, sig_handler)
+
     while True:
-        client_sock, addr = server_sock.accept()
+        try:
+            client_sock, addr = server_sock.accept()
+        except OSError:
+            print("Server closed")
+            break
         print("Client open")
         client = models.Client()
         while True:
