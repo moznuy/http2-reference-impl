@@ -3,6 +3,8 @@ from __future__ import annotations
 import dataclasses
 import socket
 import struct
+from collections.abc import Mapping
+from typing import Protocol
 
 CLIENT_PREFACE_PRI = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
@@ -71,6 +73,10 @@ def default_settings() -> Settings:
     return Settings()
 
 
+def default_streams() -> dict[int, Stream]:
+    return {0: Stream()}
+
+
 @dataclasses.dataclass(kw_only=True, slots=True)
 class Client:
     phase: int = 0
@@ -82,10 +88,22 @@ class Client:
     settings_received: bool = False
     settings: Settings = dataclasses.field(default_factory=default_settings)
 
+    streams: dict[int, Stream] = dataclasses.field(default_factory=default_streams)
+
+
+@dataclasses.dataclass(kw_only=True, slots=True)
+class Stream:
+    flow_control: int = 65_535
+
 
 @dataclasses.dataclass(kw_only=True, slots=True)
 class Settings:
-    pass
+    header_table_size: int = 1
+    enable_push: int = 1
+    max_concurrent_streams: int | None = None
+    initial_window_size: int = 65_535
+    max_frame_size: int = 16_384
+    max_header_list_size: int | None = None
 
 
 @dataclasses.dataclass(kw_only=True, slots=True)
@@ -158,7 +176,12 @@ def parse_unknown(client: Client, header: FrameHeader, frame: bytes):
     print("Unknown frame", header, frame)
 
 
-FRAME_MAPPING = {
+class ParsingProtocol(Protocol):
+    def __call__(self, client: Client, header: FrameHeader, frame: bytes) -> None:
+        ...
+
+
+FRAME_MAPPING: Mapping[int, ParsingProtocol] = {
     0x4: parse_settings,
 }
 
@@ -191,7 +214,7 @@ def handle_client(client: Client) -> None:
             client.phase = 2
 
         if client.phase == 2:
-            print("Client phase 1")
+            print("Client phase 2")
             frame = parse_frame_body(client)
             if frame is None:
                 return
@@ -199,7 +222,8 @@ def handle_client(client: Client) -> None:
             client.last_header = None
 
             # TODO: map type -> function
-            parse_settings(client, header, frame)
+            parser = FRAME_MAPPING.get(header.type, parse_unknown)
+            parser(client, header, frame)
 
             client.phase = 1
             continue
