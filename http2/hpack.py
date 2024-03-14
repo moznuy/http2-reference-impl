@@ -107,6 +107,7 @@ class HPack:
         # self.dynamic_table = ""
         # self.dynamic_indexes: list[tuple[int, int]] = []
         self.dynamic_indexes: list[Header] = []
+        print("HPack INIT")
 
     def change_max_table_size(self, max_table_size: int):
         self.max_table_size = max_table_size
@@ -156,6 +157,7 @@ class HPack:
         return True, header
 
     def decode(self, data: bytes) -> Iterator[tuple[bool, int | Header]]:
+        can_dyn_change = True
         while True:
             if not data:
                 return
@@ -164,6 +166,7 @@ class HPack:
 
             # Indexed Header Field
             if (byte >> 7) == 1:
+                can_dyn_change = False
                 success, index, data = decode_int(7, byte & 0x7F, data)
                 if not success:
                     yield False, index
@@ -182,6 +185,7 @@ class HPack:
 
             # Literal Header Field with Incremental Indexing
             if (byte >> 6) == 1:
+                can_dyn_change = False
                 success, index, data = decode_int(6, byte & 0x3F, data)
                 if not success:
                     yield False, index
@@ -211,6 +215,7 @@ class HPack:
                 # TODO: something with: Intermediaries MUST use the same representation
                 #    for encoding this header field.
                 # TODO: same code
+                can_dyn_change = False
                 success, index, data = decode_int(4, byte & 0x0F, data)
                 if not success:
                     yield False, index
@@ -237,6 +242,11 @@ class HPack:
 
             # Dynamic Table Size Update
             if (byte >> 5) == 1:
+                # Updates can occur only at the beginning of the block
+                if not can_dyn_change:
+                    yield False, -14
+                    return
+
                 success, size, data = decode_int(5, byte & 0x1F, data)
                 if not success:
                     yield False, size
@@ -245,6 +255,8 @@ class HPack:
                     yield False, -9
                     return
                 self.change_table_size(size)
+                print("HPACK: Dynamic Table Size Update", size)
+                continue
 
             raise NotImplementedError
 
