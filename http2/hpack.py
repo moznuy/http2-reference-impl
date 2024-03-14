@@ -224,7 +224,7 @@ class HPack:
                     success, header = self.get_from_tables(index, value_must=False)
                     if not success:
                         yield False, header
-                    header_key: str = header.name
+                    header_key: str = header.key
 
                 success, header_value, data = decode_str(data)
                 if not success:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+from collections.abc import Mapping
 
 from http2 import hpack
 
@@ -32,12 +33,14 @@ class FrameHeader:
 class Client:
     phase: int = 0
     rest_data: bytes = b""
+    send_data: bytes = b""
     need_close: bool = False
     last_header: FrameHeader | None = None
 
     # TODO: MUST be received / sent first
     settings_received: bool = False
-    settings: Settings = dataclasses.field(default_factory=default_settings)
+    local_settings: Settings = dataclasses.field(default_factory=default_settings)
+    remote_settings: Settings = dataclasses.field(default_factory=default_settings)
     decoder: hpack.HPack = dataclasses.field(default_factory=default_decoder)
 
     streams: dict[int, Stream] = dataclasses.field(default_factory=default_streams)
@@ -68,3 +71,13 @@ class Settings:
     initial_window_size: int = 65_535
     max_frame_size: int = 16_384
     max_header_list_size: int | None = None
+
+
+SETTING_MAPPING: Mapping[int, str] = {
+    0x1: "header_table_size",
+    0x2: "enable_push",
+    0x3: "max_concurrent_streams",
+    0x4: "initial_window_size",
+    0x5: "max_frame_size",
+    0x6: "max_header_list_size",
+}

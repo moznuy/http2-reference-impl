@@ -37,6 +37,15 @@ def set_settings(client: models.Client, setting: SettingRaw) -> bool:
     #     # The SETTINGS frame affects connection state.  A badly formed or
     #     # incomplete SETTINGS frame MUST be treated as a connection error
     #     # (Section 5.4.1) of type PROTOCOL_ERROR.
+
+    setting_id = models.SETTING_MAPPING.get(setting.identifier)
+    if setting_id is None:
+        # An endpoint that receives a SETTINGS frame with any unknown or
+        # unsupported identifier MUST ignore that setting.
+        print("WARNING: Unknown setting: ", setting.identifier)
+        return True
+    setattr(client.remote_settings, setting_id, setting.value)
+    print("Set remote setting", setting_id, setting.value)
     return True
 
 
@@ -82,6 +91,7 @@ def parse_settings(client: models.Client, header: models.FrameHeader, frame: byt
             client.need_close = True
             return
     print("Settings frame OK")
+    client.send_data += generate_empty_settings_frame(ack=True)
 
 
 def window_update(client: models.Client, stream_id: int, incr: int) -> None:
@@ -191,6 +201,7 @@ def parse_headers(client: models.Client, header: models.FrameHeader, frame: byte
 
     # TODO: handle CONT
     assert end_headers
+    print(f"{end_stream=}")
 
     # TODO: Header blocks
     #    MUST be transmitted as a contiguous sequence of frames, with no
@@ -205,6 +216,8 @@ def parse_headers(client: models.Client, header: models.FrameHeader, frame: byte
             return
         print(http_header)
         http_headers.append(http_header)
+
+    client.send_data += generate_empty_200()
 
 
 def parse_unknown(client: models.Client, header: models.FrameHeader, frame: bytes):
@@ -223,3 +236,28 @@ FRAME_MAPPING: Mapping[int, ParsingProtocol] = {
     0x4: parse_settings,
     0x8: parse_window_update,
 }
+
+
+def generate_empty_settings_frame(ack=False):
+    res = b""
+    res += (0).to_bytes(3, "big", signed=False)  # Length
+    res += (0x4).to_bytes(1, "big", signed=False)  # Type
+    flag = 1 if ack else 0
+    res += flag.to_bytes(1, "big", signed=False)  # Flags
+    res += (0).to_bytes(4, "big", signed=False)  # Stream Id
+    assert len(res) == 9, len(res)
+    return res
+
+
+def generate_empty_200():
+    data = b"\x88"  # :status: 200 from static table
+
+    res = b""
+    res += len(data).to_bytes(3, "big", signed=False)  # Length
+    res += (0x1).to_bytes(1, "big", signed=False)  # Type
+    flag = 0x1 | 0x4  # End Stream, End headers
+    res += flag.to_bytes(1, "big", signed=False)  # Flags
+    res += (1).to_bytes(4, "big", signed=False)  # Stream Id
+    res += data
+    assert len(res) == 10, len(res)
+    return res

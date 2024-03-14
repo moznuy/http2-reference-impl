@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import socket
 import struct
 
@@ -73,6 +74,8 @@ def handle_client(client: models.Client) -> None:
                 return
             client.rest_data = client.rest_data[len(CLIENT_PREFACE_PRI) :]
             client.phase = 1
+            # TODO: schedule send settings to event_loop
+            client.send_data += frames.generate_empty_settings_frame(False)
 
         if client.phase == 1:
             print("Client phase 1")
@@ -87,6 +90,15 @@ def handle_client(client: models.Client) -> None:
             client.phase = 2
 
         if client.phase == 2:
+            # TODO:
+            #    An endpoint MUST send an error code of FRAME_SIZE_ERROR if a frame
+            #    exceeds the size defined in SETTINGS_MAX_FRAME_SIZE, exceeds any
+            #    A frame size error in a frame that could alter
+            #    the state of the entire connection MUST be treated as a connection
+            #    error (Section 5.4.1); this includes any frame carrying a header
+            #    block (Section 4.3) (that is, HEADERS, PUSH_PROMISE, and
+            #    CONTINUATION), SETTINGS, and any frame with a stream identifier of 0.
+
             print("Client phase 2")
             frame = parse_frame_body(client)
             if frame is None:
@@ -94,7 +106,13 @@ def handle_client(client: models.Client) -> None:
             header = client.last_header
             client.last_header = None
 
-            # TODO: map type -> function
+            if not client.settings_received:
+                if header.type != 0x4:
+                    print("First frame is not SETTINGS")
+                    client.need_close = True
+                    return
+                client.settings_received = True
+
             parser = frames.FRAME_MAPPING.get(header.type, frames.parse_unknown)
             parser(client, header, frame)
 
@@ -112,7 +130,11 @@ def main():
         print("Client open")
         client = models.Client()
         while True:
-            payload = client_sock.recv(4096)
+            try:
+                payload = client_sock.recv(4096)
+            except ConnectionError:
+                logging.exception("!")
+                break
             if not payload:
                 break
             client.rest_data += payload
@@ -120,6 +142,11 @@ def main():
             if client.need_close:
                 print("Need close")
                 break
+
+            if client.send_data:
+                print("DEBUG: sending: ", client.send_data)
+                client_sock.sendall(client.send_data)
+                client.send_data = b""
 
         if client.rest_data:
             print("Unhandled data in client steam before close")
