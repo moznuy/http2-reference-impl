@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-import dataclasses
 import socket
 import struct
-from collections.abc import Mapping
-from typing import Protocol
+
+from http2 import frames
+from http2 import models
 
 CLIENT_PREFACE_PRI = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-
-
-@dataclasses.dataclass(kw_only=True, slots=True)
-class FrameHeader:
-    length: int
-    type: int
-    flags: int
-    stream_id: int
-    failure: bool = False
 
 
 # All numbers are big endian
@@ -31,7 +22,7 @@ FRAME_HEADER_FORMAT_SIZE = struct.calcsize(FRAME_HEADER_FORMAT)
 assert FRAME_HEADER_FORMAT_SIZE == 9
 
 
-def parse_frame_header(client) -> FrameHeader | None:
+def parse_frame_header(client) -> models.FrameHeader | None:
     if len(client.rest_data) < FRAME_HEADER_FORMAT_SIZE:
         return None
 
@@ -39,7 +30,7 @@ def parse_frame_header(client) -> FrameHeader | None:
     res: tuple[bytes, int, int, int]
     res = struct.unpack_from(FRAME_HEADER_FORMAT, client.rest_data)
     client.rest_data = client.rest_data[FRAME_HEADER_FORMAT_SIZE:]
-    header = FrameHeader(
+    header = models.FrameHeader(
         length=int.from_bytes(res[0], "big", signed=False),
         type=res[1],
         flags=res[2],
@@ -57,7 +48,7 @@ def parse_frame_header(client) -> FrameHeader | None:
     return header
 
 
-def parse_frame_body(client: Client) -> bytes | None:
+def parse_frame_body(client: models.Client) -> bytes | None:
     assert client.last_header is not None
     assert not client.last_header.failure
 
@@ -68,125 +59,7 @@ def parse_frame_body(client: Client) -> bytes | None:
     return frame
 
 
-def default_settings() -> Settings:
-    # TODO: fill default settings
-    return Settings()
-
-
-def default_streams() -> dict[int, Stream]:
-    return {0: Stream()}
-
-
-@dataclasses.dataclass(kw_only=True, slots=True)
-class Client:
-    phase: int = 0
-    rest_data: bytes = b""
-    need_close: bool = False
-    last_header: FrameHeader | None = None
-
-    # TODO: MUST be received / sent first
-    settings_received: bool = False
-    settings: Settings = dataclasses.field(default_factory=default_settings)
-
-    streams: dict[int, Stream] = dataclasses.field(default_factory=default_streams)
-
-
-@dataclasses.dataclass(kw_only=True, slots=True)
-class Stream:
-    flow_control: int = 65_535
-
-
-@dataclasses.dataclass(kw_only=True, slots=True)
-class Settings:
-    header_table_size: int = 1
-    enable_push: int = 1
-    max_concurrent_streams: int | None = None
-    initial_window_size: int = 65_535
-    max_frame_size: int = 16_384
-    max_header_list_size: int | None = None
-
-
-@dataclasses.dataclass(kw_only=True, slots=True)
-class SettingRaw:
-    identifier: int
-    value: int
-
-
-def set_settings(client: Client, setting: SettingRaw) -> bool:
-    # TODO: set setting; return success
-    #     # The SETTINGS frame affects connection state.  A badly formed or
-    #     # incomplete SETTINGS frame MUST be treated as a connection error
-    #     # (Section 5.4.1) of type PROTOCOL_ERROR.
-    return True
-
-
-# 6 bytes:
-# 16 bit identifier
-# 32 bit value
-SETTINGS_FRAME_FORMAT = ">HI"
-SETTINGS_FRAME_FORMAT_SIZE = struct.calcsize(SETTINGS_FRAME_FORMAT)
-assert SETTINGS_FRAME_FORMAT_SIZE == 6
-
-
-def parse_settings(client: Client, header: FrameHeader, frame: bytes):
-    assert frame is not None
-    assert header is not None
-    assert header.type == 0x4
-    assert len(frame) == header.length
-
-    if header.flags & 0x1:  # Settings ACK frame
-        if len(frame) > 0 or header.length > 0:
-            # TODO: set connection error FRAME_SIZE_ERROR
-            print("Settings ACK frame is not empty")
-            client.need_close = True
-            return
-        print("Settings ACK")
-        return
-
-    # The stream identifier for a SETTINGS frame MUST be zero (0x0)
-    if header.stream_id != 0:
-        # TODO: set connection error PROTOCOL_ERROR
-        print("Settings frame stream id != 0")
-        client.need_close = True
-        return
-
-    # TODO: ????
-    # The SETTINGS frame affects connection state.  A badly formed or
-    # incomplete SETTINGS frame MUST be treated as a connection error
-    # (Section 5.4.1) of type PROTOCOL_ERROR.
-
-    if header.length % SETTINGS_FRAME_FORMAT_SIZE != 0:
-        # TODO: set connection error FRAME_SIZE_ERROR
-        print("Settings frame length is not multiple of 6")
-        client.need_close = True
-        return
-
-    # count = header.length // 6
-    setting_raw: tuple[int, int]
-    for setting_raw in struct.iter_unpack(SETTINGS_FRAME_FORMAT, frame):
-        setting = SettingRaw(identifier=setting_raw[0], value=setting_raw[1])
-        if not set_settings(client, setting):
-            # TODO: PROTOCOL_ERROR
-            client.need_close = True
-            return
-    print("Settings frame OK")
-
-
-def parse_unknown(client: Client, header: FrameHeader, frame: bytes):
-    print("Unknown frame", header, frame)
-
-
-class ParsingProtocol(Protocol):
-    def __call__(self, client: Client, header: FrameHeader, frame: bytes) -> None:
-        ...
-
-
-FRAME_MAPPING: Mapping[int, ParsingProtocol] = {
-    0x4: parse_settings,
-}
-
-
-def handle_client(client: Client) -> None:
+def handle_client(client: models.Client) -> None:
     assert not client.need_close
 
     while True:
@@ -222,7 +95,7 @@ def handle_client(client: Client) -> None:
             client.last_header = None
 
             # TODO: map type -> function
-            parser = FRAME_MAPPING.get(header.type, parse_unknown)
+            parser = frames.FRAME_MAPPING.get(header.type, frames.parse_unknown)
             parser(client, header, frame)
 
             client.phase = 1
@@ -237,7 +110,7 @@ def main():
     while True:
         client_sock, addr = server_sock.accept()
         print("Client open")
-        client = Client()
+        client = models.Client()
         while True:
             payload = client_sock.recv(4096)
             if not payload:
